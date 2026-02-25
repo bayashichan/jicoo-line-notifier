@@ -76,6 +76,10 @@ async function processAndSendNotification(payload: any) {
 
   // messageの抽出 (answers配列に対応)
   let messageText = 'なし';
+
+  // NOTE: 提供された payload では answers が [] となっているため、
+  // ダッシュボードの設定で備考欄が「質問」として扱われているか、データに含まれていない可能性あり。
+  // 念のため、payload内のどこかに message というキーがあれば拾い上げる柔軟な処理を追加。
   if (obj?.answers && Array.isArray(obj.answers) && obj.answers.length > 0) {
     messageText = obj.answers.map((a: any) => {
       if (typeof a === 'object') {
@@ -87,10 +91,33 @@ async function processAndSendNotification(payload: any) {
     }).join('\n\n');
   } else if (obj?.message || payload?.message) {
     messageText = obj?.message || payload?.message;
+  } else {
+    // ペイロード全体をフラットに検索して 'message' や 'memo' などそれらしい値を探す最終手段
+    const strPayload = JSON.stringify(payload);
+    try {
+      const match = strPayload.match(/"(message|memo|note|comment)":\s*"([^"]+)"/i);
+      if (match && match[2]) {
+        messageText = match[2];
+      }
+    } catch (e) { }
   }
 
-  // 日時のフォーマット (例: 2026-03-01T10:00:00+09:00 のような形式を想定)
+  // 日時のフォーマット (例: 2026-02-27T06:00:00.000Z)
   let timeStr = startAt;
+  if (startAt !== '不明') {
+    try {
+      const dOptions: Intl.DateTimeFormatOptions = {
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Tokyo'
+      };
+      const startDate = new Date(startAt).toLocaleString('ja-JP', dOptions);
+      const endDate = endAt ? new Date(endAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Tokyo' }) : '';
+      timeStr = endDate ? `${startDate}〜${endDate}` : startDate;
+    } catch (e) {
+      // 変換失敗時はそのまま表示
+      timeStr = `${startAt}${endAt ? '〜' + endAt : ''}`;
+    }
+  }
   if (startAt !== '不明') {
     try {
       const dOptions: Intl.DateTimeFormatOptions = {
