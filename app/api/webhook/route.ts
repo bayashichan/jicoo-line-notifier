@@ -60,13 +60,34 @@ async function processAndSendNotification(payload: any) {
     return;
   }
 
+  console.log('--- Received Webhook Payload ---');
+  console.log(JSON.stringify(payload, null, 2));
+  console.log('--------------------------------');
+
   // Jicooのデータ構造から必要な情報を安全に抽出
-  // Jicooのペイロード構造の変更に強いよう、複数パターンで取得を試みる
-  const name = payload?.data?.guest?.name || payload?.guest_name || '名前なし';
-  const email = payload?.data?.guest?.email || payload?.email || '不明';
-  const startAt = payload?.data?.start_at || payload?.start_at || '不明';
-  const endAt = payload?.data?.end_at || payload?.end_at || '';
-  const messageText = payload?.data?.message || payload?.message || payload?.data?.answers?.message || 'なし';
+  // 公式Webhook (payload.object) に対応しつつ、複数パターンで取得を試みる
+  const obj = payload?.object || payload?.data || payload;
+  const contact = obj?.contact || obj?.guest || {};
+
+  const name = contact?.name || contact?.lastName || obj?.guest_name || '名前なし';
+  const email = contact?.email || obj?.email || '不明';
+  const startAt = obj?.startedAt || obj?.startAt || obj?.start_at || '不明';
+  const endAt = obj?.endedAt || obj?.endAt || obj?.end_at || '';
+
+  // messageの抽出 (answers配列に対応)
+  let messageText = 'なし';
+  if (obj?.answers && Array.isArray(obj.answers) && obj.answers.length > 0) {
+    messageText = obj.answers.map((a: any) => {
+      if (typeof a === 'object') {
+        const val = a.value || a.answer || a.text;
+        const question = a.title || a.label || a.question;
+        return question && val ? `【${question}】\n${val}` : (val || JSON.stringify(a));
+      }
+      return String(a);
+    }).join('\n\n');
+  } else if (obj?.message || payload?.message) {
+    messageText = obj?.message || payload?.message;
+  }
 
   // 日時のフォーマット (例: 2026-03-01T10:00:00+09:00 のような形式を想定)
   let timeStr = startAt;
@@ -79,7 +100,7 @@ async function processAndSendNotification(payload: any) {
       const startDate = new Date(startAt).toLocaleString('ja-JP', dOptions);
       const endDate = endAt ? new Date(endAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Tokyo' }) : '';
       timeStr = endDate ? `${startDate}〜${endDate}` : startDate;
-    } catch(e) {
+    } catch (e) {
       // 変換失敗時はそのまま表示
       timeStr = `${startAt}${endAt ? '〜' + endAt : ''}`;
     }
